@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 (.packages())
 
 #install required packages
-requiredPackages = c("rmarkdown", "knitr", "FinCal", "ggplot2", "dplyr")
+requiredPackages = c("rmarkdown", "knitr", "FinCal", "ggplot2", "dplyr", "reshape2")
 for(p in requiredPackages){
   if(!require(p,character.only = TRUE)) install.packages(p, repos = "http://cran.us.r-project.org")
   library(p,character.only = TRUE)
@@ -146,6 +146,8 @@ wet.scrub.npv <- function(simulated.prices){
   return(wet.total.cost)
 }
 
+wet.scrub.npv(random.walk.ea(123))
+
 #dry scrubber npv calculation function
 dry.scrub.npv <- function(simulated.prices){
   #excess emissions when turned on
@@ -157,11 +159,20 @@ dry.scrub.npv <- function(simulated.prices){
   dry.payoffs <- real.excess.emissions * simulated.prices
   #don't get emissions benefits until operational, no scrub emissions until then
   dry.payoffs[1:dry.install.time.quarters] <- off.emissions * simulated.prices[1:dry.install.time.quarters]
+  #initial investment to build system
   dry.payoffs[1] <- dry.payoffs[1] + dry.investment
-  
-  
+  #variable cost, not counting time under construction
+  dry.payoffs[dry.install.time.quarters:num.quarters] <- ifelse(simulated.prices[dry.install.time.quarters:num.quarters] > dry.on.threshold, dry.payoffs[dry.install.time.quarters:num.quarters] + dry.var.cost.per.ton * real.excess.emissions[dry.install.time.quarters:num.quarters], dry.payoffs[dry.install.time.quarters:num.quarters])
+  #npv of dry scrubber project
+  dry.total.cost <- npv(quarter.discount.rate, dry.payoffs)
+  #print(dry.payoffs)
+  return(dry.total.cost)
+  #TODO: factor in different coal types, terminal value for npv?
 }
 
+dry.scrub.npv(random.walk.ea(123))
+
+#calculate total emissions from dry scrub solution
 dry.scrub.emissions <- function(simulated.prices){
   
 }
@@ -175,7 +186,12 @@ sim.data <- data.frame(
   dry.scrubber.emissions = c(0)
   
   )
+
+#show data table for next section, plus output from random walk algorithm
 head(sim.data)
+sample.walk <- random.walk.ea(22)
+plot(sample.walk)
+#wet.scrub.npv(sample.walk)
 ```
 
 ###Simulation
@@ -204,7 +220,7 @@ for (i in 1:num.sims) {
   sim.data$wet.scrubber.npv[i] <- wet.scrub.npv(prices.sim)
   
   #dry scrubber
-  
+  sim.data$dry.scrubber.npv[i] <- dry.scrub.npv(prices.sim)
   
   #emissions will vary now in addition to costs/savings
 
@@ -220,10 +236,24 @@ total.emissions.wet <- (wet.emissions - EA.allocation) * num.quarters
 
 head(sim.data)
 
-hist(sim.data$no.scrubber.npv)
-hist(sim.data$wet.scrubber.npv)
+plot.data <- melt(sim.data[,2:4])
+#View(plot.data)
+ggplot(plot.data, aes(x=value, fill = variable), alpha = 0.5) + geom_histogram(position = 'dodge', color = "black")
 
 
+
+ggplot(sim.data, aes(y = (..count..)/sum(..count..))) + geom_histogram(aes(x=no.scrubber.npv), color="black", fill="blue", alpha=0.5) + geom_histogram(aes(x=wet.scrubber.npv), color="black", fill="red", alpha=0.5) + geom_histogram(aes(x=dry.scrubber.npv), color="black",  fill="yellow", alpha=0.5)
 
   
+```
+###Optimization
+
+Loop through different values of threshold for the dry scrubber to determine optimal threshold
+
+
+
+```{r optimization}
+
+
+
 ```
