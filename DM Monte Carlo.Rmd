@@ -30,6 +30,10 @@ Three options for dealing with SO2 pollution:
 
 dry scrubber can be turned on and off dynamically at no cost. A threshold must be determined for switching on/off.
 
+### Parameters
+
+Writing down all of the constants or estimates in the case here so they are easy to reference and adjust as needed.
+
 ```{r parameters}
 #financial params
 quarter.discount.rate <- 0.02411
@@ -245,28 +249,38 @@ ggplot(plot.data, aes(x=value, fill = variable), alpha = 0.5) + geom_histogram(p
 
 ### Optimization
 
-Loop through different values of threshold for the dry scrubber to determine optimal threshold
+Loop through different values of threshold for the dry scrubber to determine optimal threshold.
+
+Ideas: make a 95% confidence interval for EA prices and use those curves
 
 
 
 ```{r optimization}
-thresholds <- seq(500, 1500, 10)
+thresholds <- seq(500, 1000, 10)
+efficiencies <- seq(40,60,5)
 opt.sim.count <- 50
-optimization.data <- data.frame(threshold.values = thresholds, npv = c(0))
+optimization.data <- data.frame(threshold.values = thresholds, npv = c(0), efficiency.values = c(0))
+eff.optimization.data <- data.frame()
 
 hist(coal.data$Percent.SO2.reduction)
 #TODO try with different efficiencies based on coal data
 #TODO factor in prediction error
 
-
-for(threshold in thresholds){
-  npv.vec <- vector(mode = "numeric", length = opt.sim.count)
-  for(i in 0:(opt.sim.count-1)){
-    prices.sim <- random.walk.ea(i)
-    npv.vec[i] <- dry.scrub.npv(prices.sim, threshold)
+for(dry.scrub.efficiency in efficiencies){
+  for(threshold in thresholds){
+    npv.vec <- vector(mode = "numeric", length = opt.sim.count)
+    for(i in 0:(opt.sim.count-1)){
+      prices.sim <- random.walk.ea(i)
+      npv.vec[i] <- dry.scrub.npv(prices.sim, threshold)
+    }
+     optimization.data$npv[optimization.data$threshold.values == threshold] <- mean(npv.vec)
+     optimization.data$efficiency.values[optimization.data$threshold.values == threshold] <- dry.scrub.efficiency
   }
-   optimization.data$npv[optimization.data$threshold.values == threshold] <- mean(npv.vec)
+  eff.optimization.data <- rbind(eff.optimization.data, optimization.data)
 }
+
+
+ggplot(eff.optimization.data, aes(x=threshold.values, y=npv, color=efficiency.values)) + geom_point()
 
 #View(optimization.data)
 
