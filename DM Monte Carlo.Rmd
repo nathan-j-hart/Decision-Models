@@ -1,0 +1,152 @@
+---
+title: "Monte Carlo"
+author: "Nathan Hart"
+date: "6/8/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages("FinCal")
+```
+
+## R Markdown
+
+### Summary:
+Three options for dealing with SO2 pollution:
+1. no scrubber
+2. wet scrubber
+3. dry scrubber
+
+dry scrubber can be turned on and off dynamically at no cost. A threshold must be determined for switching on/off.
+
+```{r parameters}
+#financial params
+quarter.discount.rate <- 0.02411
+wet.initial.investment.percent <- 0.75
+
+#pricing params
+ea.price.per.ton <- 1150 #to play around with for direct calculation
+ea.initial.ppt <- 800 #initial value. will simulate with random walk, expected to increase
+drift <- 0.0125
+sd.error <- 0.06
+num.quarters <- 60 #15 years of quarterly price changes
+
+#emissions data
+emissions.per.quarter <- 4000
+EA.allocation <- 2000
+discount.rate <- 0.1
+
+#wet scrubber params
+#estimated value, but up to 99% possible
+wet.scrub.efficiency <- 0.98 
+#cost per ton of SO2 processed
+wet.cost.per.ton <- 10 
+#120M to install system
+wet.investment <- 120000000 
+#unit is fiscal quarters, 3-5 but 10% chance of less than one year. 20% chance of more than a year
+wet.install.time.quarters <- 4 
+
+#dry scrubber params
+dry.investment <- 5000000
+dry.install.time.weeks <- 3 #estimate
+dry.var.cost.per.ton <- 600
+dry.scrub.efficiency <- 0.55 #40%-70% is range, choosing 55 as described by prof
+dry.on.threshold <- 600
+
+```
+
+### Direct Calculations
+
+Not doing any simulation here, just calculating using average or estimated values.
+
+From case: "I can compare the scrubbers at $1150 EA cost"
+
+
+```{r direct.calculation}
+#no scrubs
+total.cost.none <- (emissions.per.quarter - EA.allocation) * ea.price.per.ton
+print(total.cost.none)
+
+#wet scrubber
+wet.emissions <- emissions.per.quarter * (1-wet.scrub.efficiency)
+total.cost.wet <- (wet.emissions - EA.allocation) * ea.price.per.ton #negative numbers are earnings
+print(total.cost.wet)
+
+#dry scrubber
+dry.emissions <- emissions.per.quarter * (1 - dry.scrub.efficiency)
+operating.cost.dry <- emissions.per.quarter * dry.var.cost.per.ton
+total.cost.dry <- (dry.emissions - EA.allocation) * ea.price.per.ton + operating.cost.dry
+print(total.cost.dry)
+
+```
+
+### Simulation
+
+Monte Carlo simulations for uncertain variables
+
+Wet scrubber notes: price fluctuation main thing to model.
+
+Dry scrubber notes: will have to use forecasted EA prices (some kind of error distribution)
+instead of actual prices for making on/off decisions. Can optimize on threshold.
+Type of coal will have impact on efficiency.
+
+https://nwfsc-timeseries.github.io/atsa-labs/sec-tslab-random-walks-rw.html
+
+Vectors of payoffs, npv function from FinCal library to calculate NPV
+
+```{r simulation}
+#import csv coal data
+coal.data <- read.csv(file.choose(), header=TRUE, sep=",", stringsAsFactors = TRUE)
+
+#random walk for EA prices
+random.walk.ea <- function(seed){
+  ## set random number seed
+  set.seed(seed)
+  ## initialize arrays. unclear if SD error needs to be multiplied by initial value or not
+  prices.sim <- noise <- rnorm(n = num.quarters, mean = drift * ea.initial.ppt, sd = sd.error * ea.initial.ppt)
+  ## compute values 2 thru TT
+  prices.sim[1] <- ea.initial.ppt
+  for (t in 2:num.quarters) {
+    #look at last value, add a deviation (gaussian noise)
+    #could also add drift here multiplied by most recent value if we are looking for more an exponential drift?
+      prices.sim[t] <- (prices.sim[t - 1] + noise[t])
+  }
+  return(prices.sim)
+}
+
+#for initial one-shot calculation
+prices.sim <- random.walk.ea(103)
+no.scrub.payoffs <- vector(mode = "numeric", length = 60)
+wet.payoffs <- vector(mode = "numeric", length = 60)
+dry.payoffs <- vector(mode = "numeric", length = 60)
+
+
+
+#TODO
+#add npv calculation
+#iterate through many possible EA price curves
+
+#no scrubber
+no.scrub.quarters <- (emissions.per.quarter - EA.allocation) * prices.sim
+no.scrub.cost <- sum(no.scrub.quarters)
+no.scrub.emissions <- (emissions.per.quarter - EA.allocation) * num.quarters
+print(no.scrub.cost)
+print(no.scrub.emissions)
+
+
+#wet scrubber
+wet.emissions <- emissions.per.quarter * (1-wet.scrub.efficiency)
+wet.quarters <- (wet.emissions - EA.allocation) * prices.sim
+wet.total.cost <- sum(wet.quarters) #negative numbers are earnings
+total.emissions.wet <- sum(wet.emissions * num.quarters)
+print(wet.total.cost)
+print(total.emissions.wet)
+
+
+
+#dry scrubber
+
+
+  
+```
