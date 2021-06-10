@@ -7,7 +7,17 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-#install.packages("FinCal")
+
+(.packages())
+
+#install required packages
+requiredPackages = c("rmarkdown", "knitr", "FinCal", "ggplot2", "dplyr")
+for(p in requiredPackages){
+  if(!require(p,character.only = TRUE)) install.packages(p, repos = "http://cran.us.r-project.org")
+  library(p,character.only = TRUE)
+}
+rm(requiredPackages)
+
 ```
 
 ## R Markdown
@@ -49,7 +59,7 @@ wet.install.time.quarters <- 4
 
 #dry scrubber params
 dry.investment <- 5000000
-dry.install.time.weeks <- 3 #estimate
+dry.install.time.quarters <- 1 #estimate
 dry.var.cost.per.ton <- 600
 dry.scrub.efficiency <- 0.55 #40%-70% is range, choosing 55 as described by prof
 dry.on.threshold <- 600
@@ -81,25 +91,26 @@ print(total.cost.dry)
 
 ```
 
-### Simulation
+### Simulation setup
 
 Monte Carlo simulations for uncertain variables
 
-Wet scrubber notes: price fluctuation main thing to model.
-
-Dry scrubber notes: will have to use forecasted EA prices (some kind of error distribution)
-instead of actual prices for making on/off decisions. Can optimize on threshold.
-Type of coal will have impact on efficiency.
-
+Random walk simulation for prices
 https://nwfsc-timeseries.github.io/atsa-labs/sec-tslab-random-walks-rw.html
 
 Vectors of payoffs, npv function from FinCal library to calculate NPV
 
-```{r simulation}
-#import csv coal data
-coal.data <- read.csv(file.choose(), header=TRUE, sep=",", stringsAsFactors = TRUE)
+functions for calculating emissions and npv of each solution. 
+factoring in on/off decisions, build time, build costs and pay timings
 
-#random walk for EA prices
+```{r simulation setup}
+#import csv coal data
+#coal.data <- read.csv(file.choose(), header=TRUE, sep=",", stringsAsFactors = TRUE)
+
+#parameter number of times to simulate
+num.sims <- 1000
+
+#random walk function for EA prices
 random.walk.ea <- function(seed){
   ## set random number seed
   set.seed(seed)
@@ -115,37 +126,103 @@ random.walk.ea <- function(seed){
   return(prices.sim)
 }
 
-#for initial one-shot calculation
-prices.sim <- random.walk.ea(103)
-no.scrub.payoffs <- vector(mode = "numeric", length = 60)
-wet.payoffs <- vector(mode = "numeric", length = 60)
-dry.payoffs <- vector(mode = "numeric", length = 60)
+#no scrubber npv calculation function
+no.scrub.npv <- function(simulated.prices){
+  no.scrub.payoffs <- (emissions.per.quarter - EA.allocation) * simulated.prices
+  no.scrub.cost <- npv(quarter.discount.rate, no.scrub.payoffs)
+  return(no.scrub.cost)
+}
+
+#wet scrubber npv calc function
+wet.scrub.npv <- function(simulated.prices){
+  wet.emissions <- emissions.per.quarter * (1-wet.scrub.efficiency)
+  wet.payoffs <- (wet.emissions - EA.allocation) * simulated.prices
+  #don't get emissions benefits until operational, no scrub emissions until then
+  wet.payoffs[1:wet.install.time.quarters] <- (emissions.per.quarter - EA.allocation) * simulated.prices[1:wet.install.time.quarters]
+  #TODO may be off by one below, might need a initial cost before first quarter. will be close either way
+  wet.payoffs[1] <- wet.payoffs[1] + wet.initial.investment.percent * wet.investment
+  wet.payoffs[wet.install.time.quarters] <- wet.payoffs[wet.install.time.quarters] + (1-wet.initial.investment.percent) * wet.investment
+  wet.total.cost <- npv(quarter.discount.rate, wet.payoffs) #negative numbers are earnings
+  return(wet.total.cost)
+}
+
+#dry scrubber npv calculation function
+dry.scrub.npv <- function(simulated.prices){
+  #excess emissions when turned on
+  dry.emissions <- (emissions.per.quarter - EA.allocation) * (1 - dry.scrub.efficiency)
+  off.emissions <- emissions.per.quarter - EA.allocation
+  #vector with emissions based on on/off threshold
+  real.excess.emissions <- ifelse(simulated.prices > dry.on.threshold, dry.emissions, off.emissions)
+  #vector with costs per quarter factoring in on/off decision
+  dry.payoffs <- real.excess.emissions * simulated.prices
+  #don't get emissions benefits until operational, no scrub emissions until then
+  dry.payoffs[1:dry.install.time.quarters] <- off.emissions * simulated.prices[1:dry.install.time.quarters]
+  dry.payoffs[1] <- dry.payoffs[1] + dry.investment
+  
+  
+}
+
+dry.scrub.emissions <- function(simulated.prices){
+  
+}
 
 
+sim.data <- data.frame(
+  id = c(1:num.sims),
+  no.scrubber.npv = c(0),
+  wet.scrubber.npv = c(0),
+  dry.scrubber.npv = c(0),
+  dry.scrubber.emissions = c(0)
+  
+  )
+head(sim.data)
+```
 
-#TODO
-#add npv calculation
-#iterate through many possible EA price curves
+###Simulation
 
-#no scrubber
-no.scrub.quarters <- (emissions.per.quarter - EA.allocation) * prices.sim
-no.scrub.cost <- sum(no.scrub.quarters)
+Simulation iterations set above, will create many different EA price profiles to get distribution of outcomes
+
+Calculates the NPV and emissions of each option for each potential EA curve.
+
+Emissions for no scrubber and wet scrubber are constant
+
+For dry scrubber: type of coal will have impact on efficiency. Emissions will vary based on price and threshold chosen
+
+Note: positive numbers are costs, as that is more or less the "default" scenario
+
+Format output to make profit/loss clear
+
+```{r simulation}
+for (i in 1:num.sims) {
+  #use index as new seed to get many possible EA price curves
+  prices.sim <- random.walk.ea(i)
+  
+  #no scrubber
+  sim.data$no.scrubber.npv[i] <- no.scrub.npv(prices.sim)
+  
+  #wet scrubber
+  sim.data$wet.scrubber.npv[i] <- wet.scrub.npv(prices.sim)
+  
+  #dry scrubber
+  
+  
+  #emissions will vary now in addition to costs/savings
+
+}
+
+#no scrub emissions, assuming emissions are constant, implied in case
 no.scrub.emissions <- (emissions.per.quarter - EA.allocation) * num.quarters
-print(no.scrub.cost)
-print(no.scrub.emissions)
+#print(no.scrub.emissions)
 
+#wet emissions assuming constant emissions
+total.emissions.wet <- (wet.emissions - EA.allocation) * num.quarters
+#print(total.emissions.wet)
 
-#wet scrubber
-wet.emissions <- emissions.per.quarter * (1-wet.scrub.efficiency)
-wet.quarters <- (wet.emissions - EA.allocation) * prices.sim
-wet.total.cost <- sum(wet.quarters) #negative numbers are earnings
-total.emissions.wet <- sum(wet.emissions * num.quarters)
-print(wet.total.cost)
-print(total.emissions.wet)
+head(sim.data)
 
+hist(sim.data$no.scrubber.npv)
+hist(sim.data$wet.scrubber.npv)
 
-
-#dry scrubber
 
 
   
