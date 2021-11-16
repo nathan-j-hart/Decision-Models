@@ -259,23 +259,29 @@ Ideas: make a 95% confidence interval for EA prices and use those curves
 thresholds <- seq(500, 1000, 10)
 efficiencies <- seq(40,60,5)
 opt.sim.count <- 50
+
 optimization.data <- data.frame(threshold.values = thresholds, npv = c(0), efficiency.values = c(0))
 eff.optimization.data <- data.frame()
 
 hist(coal.data$Percent.SO2.reduction)
-#TODO try with different efficiencies based on coal data
-#TODO factor in prediction error
+#TODO factor in prediction error: make an error vector as an argument to npv function
 
+
+#TODO: make efficiency a parameter to dry scrub npv function
 for(dry.scrub.efficiency in efficiencies){
   for(threshold in thresholds){
     npv.vec <- vector(mode = "numeric", length = opt.sim.count)
     for(i in 0:(opt.sim.count-1)){
       prices.sim <- random.walk.ea(i)
+      #simulate 60 quarters
       npv.vec[i] <- dry.scrub.npv(prices.sim, threshold)
     }
-     optimization.data$npv[optimization.data$threshold.values == threshold] <- mean(npv.vec)
-     optimization.data$efficiency.values[optimization.data$threshold.values == threshold] <- dry.scrub.efficiency
+    #average of each simulation
+    optimization.data$npv[optimization.data$threshold.values == threshold] <- mean(npv.vec)
+    #organized by efficiency level
+    optimization.data$efficiency.values[optimization.data$threshold.values == threshold] <- dry.scrub.efficiency
   }
+  #append new data for different efficiency level
   eff.optimization.data <- rbind(eff.optimization.data, optimization.data)
 }
 
